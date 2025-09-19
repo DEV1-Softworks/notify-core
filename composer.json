@@ -1,0 +1,39 @@
+{
+  "name": "dev1/notify-core",
+  "description": "Driver-agnostic notifications core.",
+  "type": "library",
+  "license": "MIT",
+  "require": {
+    "php": ">=7.4 <8.5",
+    "psr/http-client": "^1.0",
+    "psr/http-factory": "^1.0",
+    "psr/log": "^1.1"
+  },
+  "require-dev": {
+    "nyholm/psr7": "^1.8",
+    "symfony/http-client": "^5.4 || ^6.0 || ^7.0",
+    "phpunit/phpunit": "^9.6"
+  },
+  "autoload": {
+    "psr-4": {
+      "Dev1\\NotifyCore\\": "src/"
+    }
+  },
+  "authors": [
+    {
+      "name": "DEV1 Softworks Labs",
+      "email": "it@dev1.mx"
+    }
+  ],
+  "keywords": ["notifications", "push", "fcm", "php", "core", "dev1"],
+  "homepage": "https://github.com/DEV1-Softworks/notify-core",
+  "support": {
+    "issues": "https://github.com/DEV1-Softworks/notify-core/issues",
+    "source": "https://github.com/DEV1-Softworks/notify-core"
+  },
+  "config": {
+    "optimize-autoloader": true,
+    "sort-packages": true
+  },
+  "prefer-stable": true
+}
