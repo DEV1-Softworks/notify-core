@@ -101,7 +101,7 @@ var_dump($result);
 
 ## Next steps
 - [ ] Increase drivers availability (Twilio Notify, OneSignal, APNs)
-- [X] Laravel adapter (`dev1/laravel-notify`)
+- [x] Laravel adapter (`dev1/laravel-notify`)
 - [ ] Symfony bundle (`dev1/symfony-notify-bundle`)
 - [ ] Unit tests & CI
 - [ ] Advanced platform overrides (Android/APNs/WebPush)
