@@ -3,7 +3,7 @@
 Driver-agnostic notifications core for PHP (starting with Firebase Cloud Messaging HTTP v1).  
 Built in Mexico by **DEV1 Softworks Labs**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![Version: 1.0](https://img.shields.io/badge/version-0.1.0-green.svg)](#)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![Version: 1.1](https://img.shields.io/badge/version-1.1-green.svg)](#)
 
 ---
 
@@ -24,7 +24,7 @@ Require the library (PHP 7.4+):
 composer require dev1/notify-core
 ```
 
-For development / examples you’ll need a PSR-18 client + PSR-17 factories.  
+For development and examples, you’ll need a PSR-18 client and PSR-17 factories.  
 We recommend:
 
 ```bash
@@ -95,29 +95,31 @@ var_dump($result);
 ## Requirements
 - PHP ^7.4
 - ext-openssl
-- A Firebase Project with a Service Account JSON, Legacy FCM is not compatible.
+- A Firebase Project with a Service Account JSON (Legacy FCM is not compatible)
 
 ---
 
-## Next steps
-- [ ] Increase drivers availability (Twilio Notify, OneSignal, APNs)
+## Roadmap
+- [ ] Add more drivers (Twilio Notify, OneSignal, APNs)
 - [x] Laravel adapter (`dev1/laravel-notify`)
 - [ ] Symfony bundle (`dev1/symfony-notify-bundle`)
 - [ ] Unit tests & CI
-- [ ] Advanced platform overrides (Android/APNs/WebPush)
+- [x] Advanced platform overrides (Android/APNs)
 
 ---
 
 ## License
 MIT License © DEV1 Softworks Labs
 
-## Want to collaborate?
+---
 
-We welcome contributions from the community! If you'd like to help improve this project, please:
+## Contributing
 
-- Fork the repository and create a new branch for your changes.
-- Follow the existing code style and add tests where appropriate.
-- Open a pull request describing your changes and the motivation behind them.
-- Check the issues tab for open tasks or suggest new features.
+We welcome contributions from the community! To get started:
 
-If you have questions or need guidance, feel free to open an issue or start a discussion. Thank you for considering contributing to DEV1 Notify Core!
+1. Fork the repository and create a new branch for your changes.
+2. Follow the existing code style and add tests where appropriate.
+3. Open a pull request describing your changes and the motivation behind them.
+4. Check the issues tab for open tasks or suggest new features.
+
+If you have questions or need guidance, please open an issue or start a discussion. Thank you for considering contributing to DEV1 Notify Core!
