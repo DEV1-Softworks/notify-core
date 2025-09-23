@@ -18,6 +18,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.1] - 2025-09-22
+### Added
+- Support for custom notification channels in **Firebase Cloud Messaging**.
+- New example in `examples/send_fcm_channels.php`.
+- `AndroidOptions` and `ApnsOptions` to configure platform-specific options.
+- `platformOverrides` in `PushMessage` to set platform-specific options.
+
+---
+
 ## [Unreleased]
 - Support for additional providers (Twilio Notify, OneSignal, APNs).
 - Adapters for Laravel and Symfony.
