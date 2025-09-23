@@ -12,7 +12,7 @@ final class AndroidOptions implements PlatformOptions
 
     private ?int $ttl = null;
 
-    private ?string $collapseKey;
+    private ?string $collapseKey = null;
 
     /** @var array<string,mixed> */
     private array $notification = [];
