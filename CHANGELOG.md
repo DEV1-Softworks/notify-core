@@ -27,6 +27,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.1] - 2025-09-22
+### Modified
+- Corrected APNs payload structure in `ApnsOptions` to comply with FCM v1 requirements.
+- Fixed Android notification channel handling in `AndroidOptions`.
+- Improved error handling in `FcmHttpV1Client`.
+
+---
+
 ## [Unreleased]
 - Support for additional providers (Twilio Notify, OneSignal, APNs).
 - Adapters for Laravel and Symfony.
