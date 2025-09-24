@@ -13,7 +13,7 @@ class PushMessage
     /** @var string */
     public $body;
 
-    /** @var string */
+    /** @var array<string,mixed>|null */
     public $data;
 
     /**
@@ -24,7 +24,7 @@ class PushMessage
 
     /**
      * @param array<string,mixed>|null $data
-     * @param array<string,mixed>|null $platformOverrides
+     * @param array<string,mixed|object>|null $platformOverrides Array of platform overrides. Values can be arrays or objects implementing PlatformOptions
      */
     public function __construct($title, $body, $data = null, $platformOverrides = null)
     {

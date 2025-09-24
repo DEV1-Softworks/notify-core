@@ -3,6 +3,7 @@
 namespace Dev1\NotifyCore\Drivers;
 
 use Dev1\NotifyCore\Contracts\AccessTokenProvider;
+use Dev1\NotifyCore\Contracts\PlatformOptions;
 use Dev1\NotifyCore\Contracts\PushClient;
 use Dev1\NotifyCore\DTO\PushMessage;
 use Dev1\NotifyCore\DTO\PushResult;
@@ -173,14 +174,27 @@ class FcmHttpV1Client implements PushClient
 
         /** Platform overrides */
         if (is_array($message->platformOverrides)) {
-            if (isset($message->platformOverrides['android']) && is_array($message->platformOverrides['android'])) {
-                $msg['android'] = $message->platformOverrides['android'];
+            $android = isset($message->platformOverrides['android']) ? $message->platformOverrides['android'] : null;
+            if ($android !== null) {
+                if ($android instanceof PlatformOptions) {
+                    $msg['android'] = $android->toArray();
+                } elseif (is_array($android)) {
+                    $msg['android'] = $android;
+                }
             }
-            if (isset($message->platformOverrides['apns']) && is_array($message->platformOverrides['apns'])) {
-                $msg['apns'] = $message->platformOverrides['apns'];
+
+            $apns = isset($message->platformOverrides['apns']) ? $message->platformOverrides['apns'] : null;
+            if ($apns !== null) {
+                if ($apns instanceof PlatformOptions) {
+                    $msg['apns'] = $apns->toArray();
+                } elseif (is_array($apns)) {
+                    $msg['apns'] = $apns;
+                }
             }
-            if (isset($message->platformOverrides['webpush']) && is_array($message->platformOverrides['webpush'])) {
-                $msg['webpush'] = $message->platformOverrides['webpush'];
+
+            $webpush = isset($message->platformOverrides['webpush']) ? $message->platformOverrides['webpush'] : null;
+            if ($webpush !== null && is_array($webpush)) {
+                $msg['webpush'] = $webpush;
             }
         }
 
