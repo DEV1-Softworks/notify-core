@@ -8,7 +8,7 @@ final class AndroidOptions implements PlatformOptions
 {
     private ?string $channelId = null;
 
-    private ?string $priority = null;
+    private ?string $priority = null; // 'NORMAL' | 'HIGH'
 
     private ?int $ttl = null;
 
@@ -37,7 +37,15 @@ final class AndroidOptions implements PlatformOptions
 
     public function withPriority(string $priority): self
     {
-        $this->priority = $priority;
+        // Normalize to FCM allowed values: 'NORMAL' or 'HIGH'
+        $p = strtoupper($priority);
+        if ($p === 'HIGH' || $p === 'MAX') {
+            $this->priority = 'HIGH';
+        } elseif ($p === 'NORMAL' || $p === 'DEFAULT' || $p === 'LOW') {
+            $this->priority = 'NORMAL';
+        } else {
+            $this->priority = $p; // allow raw values if already correct
+        }
         return $this;
     }
 
@@ -47,7 +55,7 @@ final class AndroidOptions implements PlatformOptions
         return $this;
     }
 
-    public function witlCollapseKey(string $key): self
+    public function withCollapseKey(string $key): self
     {
         $this->collapseKey = $key;
         return $this;
@@ -104,7 +112,9 @@ final class AndroidOptions implements PlatformOptions
         }
 
         if ($this->ttl !== null) {
-            $output['ttl'] = $this->ttl;
+            // FCM expects TTL as string with seconds, e.g., "3600s"
+            $seconds = max(0, (int) $this->ttl);
+            $output['ttl'] = $seconds . 's';
         }
 
         if ($this->collapseKey !== null) {
