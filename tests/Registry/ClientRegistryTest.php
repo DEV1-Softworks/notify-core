@@ -59,6 +59,34 @@ final class ClientRegistryTest extends TestCase
         $this->assertFalse($registry->remove('missing'));
     }
 
+    public function testSetDefaultSwitchesDefault(): void
+    {
+        $registry = new ClientRegistry();
+        $registry->register('a', $this->makeClient());
+        $b = $this->makeClient();
+        $registry->register('b', $b);
+
+        $registry->setDefault('b');
+        $this->assertSame('b', $registry->defaultName());
+        $this->assertSame($b, $registry->client());
+    }
+
+    public function testSetDefaultUnknownThrows(): void
+    {
+        $registry = new ClientRegistry();
+        $this->expectException(\RuntimeException::class);
+        $registry->setDefault('missing');
+    }
+
+    public function testNamesListsRegisteredClients(): void
+    {
+        $registry = new ClientRegistry();
+        $registry->register('a', $this->makeClient());
+        $registry->register('b', $this->makeClient());
+
+        $this->assertSame(['a', 'b'], $registry->names());
+    }
+
     private function makeClient(): PushClient
     {
         return new class implements PushClient {

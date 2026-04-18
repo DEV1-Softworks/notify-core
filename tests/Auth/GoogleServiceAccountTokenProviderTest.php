@@ -10,6 +10,7 @@ use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Client\ClientExceptionInterface;
+use Psr\SimpleCache\CacheInterface;
 
 final class GoogleServiceAccountTokenProviderTest extends TestCase
 {
@@ -131,10 +132,117 @@ final class GoogleServiceAccountTokenProviderTest extends TestCase
         }
     }
 
+    public function testMalformedCacheEntryIsIgnored(): void
+    {
+        $cache = new InMemoryCache();
+        // Seed cache with a bogus entry (missing expires_at).
+        $cache->set('dev1_notify_core.google_oauth.' . sha1('sa@example.iam.gserviceaccount.com'), ['unexpected' => 'shape']);
+
+        $http = new FakeHttpClient(new Response(200, [], json_encode(['access_token' => 'tok-fresh', 'expires_in' => 3600])));
+        $provider = $this->makeProvider($http, [], $cache);
+
+        $this->assertSame('tok-fresh', $provider->getToken());
+        $this->assertSame(1, $http->callCount, 'Malformed cache entries must trigger a fresh network request');
+    }
+
+    public function testCacheReadFailureFallsBackToNetwork(): void
+    {
+        $throwing = new class implements CacheInterface {
+            public function get($key, $default = null)
+            {
+                throw new \RuntimeException('cache read boom');
+            }
+            public function set($key, $value, $ttl = null)
+            {
+                return true;
+            }
+            public function delete($key) { return true; }
+            public function clear() { return true; }
+            public function getMultiple($keys, $default = null) { return []; }
+            public function setMultiple($values, $ttl = null) { return true; }
+            public function deleteMultiple($keys) { return true; }
+            public function has($key) { return false; }
+        };
+
+        $http = new FakeHttpClient(new Response(200, [], json_encode(['access_token' => 'tok-after-cache-fail', 'expires_in' => 3600])));
+        $provider = $this->makeProvider($http, [], $throwing);
+
+        $this->assertSame('tok-after-cache-fail', $provider->getToken());
+    }
+
+    public function testCacheWriteFailureIsSwallowed(): void
+    {
+        $throwingWrite = new class implements CacheInterface {
+            public function get($key, $default = null) { return null; }
+            public function set($key, $value, $ttl = null)
+            {
+                throw new \RuntimeException('cache write boom');
+            }
+            public function delete($key) { return true; }
+            public function clear() { return true; }
+            public function getMultiple($keys, $default = null) { return []; }
+            public function setMultiple($values, $ttl = null) { return true; }
+            public function deleteMultiple($keys) { return true; }
+            public function has($key) { return false; }
+        };
+
+        $http = new FakeHttpClient(new Response(200, [], json_encode(['access_token' => 'tok-write-fail', 'expires_in' => 3600])));
+        $provider = $this->makeProvider($http, [], $throwingWrite);
+
+        // Must still return the token even if the cache write failed.
+        $this->assertSame('tok-write-fail', $provider->getToken());
+    }
+
+    public function testScopeArrayIsSpaceJoinedInJwt(): void
+    {
+        $http = new FakeHttpClient(new Response(200, [], json_encode(['access_token' => 'tok-array-scope', 'expires_in' => 3600])));
+        $provider = $this->makeProvider($http, [
+            'scope' => [
+                'https://www.googleapis.com/auth/firebase.messaging',
+                'https://www.googleapis.com/auth/cloud-platform',
+            ],
+        ]);
+
+        $this->assertSame('tok-array-scope', $provider->getToken());
+
+        // Decode the assertion JWT payload to confirm the joined scope string reached it.
+        parse_str($http->lastBody, $form);
+        $this->assertArrayHasKey('assertion', $form);
+        $parts = explode('.', $form['assertion']);
+        $this->assertCount(3, $parts);
+        $claimsJson = base64_decode(strtr($parts[1], '-_', '+/'));
+        $claims = json_decode($claimsJson, true);
+        $this->assertSame(
+            'https://www.googleapis.com/auth/firebase.messaging https://www.googleapis.com/auth/cloud-platform',
+            $claims['scope']
+        );
+    }
+
+    public function testHttp200WithoutAccessTokenThrows(): void
+    {
+        $http = new FakeHttpClient(new Response(200, [], json_encode(['something_else' => true])));
+        $provider = $this->makeProvider($http, ['max_retries' => 0]);
+
+        $this->expectException(\RuntimeException::class);
+        $provider->getToken();
+    }
+
+    public function testInvalidPrivateKeyThrowsAtSignTime(): void
+    {
+        $http = new FakeHttpClient(new Response(200, [], json_encode(['access_token' => 'never'])));
+        $provider = $this->makeProvider($http, [
+            'private_key' => "-----BEGIN PRIVATE KEY-----\nnot-a-real-key\n-----END PRIVATE KEY-----",
+            'max_retries' => 0,
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $provider->getToken();
+    }
+
     /**
      * @param array<string,mixed> $extraConfig
      */
-    private function makeProvider(FakeHttpClient $http, array $extraConfig = [], ?InMemoryCache $cache = null): GoogleServiceAccountTokenProvider
+    private function makeProvider(FakeHttpClient $http, array $extraConfig = [], ?CacheInterface $cache = null): GoogleServiceAccountTokenProvider
     {
         $config = array_merge([
             'client_email' => 'sa@example.iam.gserviceaccount.com',
