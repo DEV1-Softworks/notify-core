@@ -8,6 +8,8 @@ use Dev1\NotifyCore\Contracts\PushClient;
 use Dev1\NotifyCore\DTO\PushMessage;
 use Dev1\NotifyCore\DTO\PushResult;
 use Dev1\NotifyCore\DTO\PushTarget;
+use Dev1\NotifyCore\Version;
+use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface as HttpClientInterface;
 use Psr\Http\Message\RequestFactoryInterface;
 use Psr\Http\Message\StreamFactoryInterface;
@@ -34,7 +36,8 @@ class FcmHttpV1Client implements PushClient
      * @var array<string,mixed>
      *  - project_id: string (required)
      *  - endpoint: string (optional, default: https://fcm.googleapis.com/v1/projects/{project_id}/messages:send)
-     *  - timeout: int|float (optional)
+     *  - max_retries: int (optional, default 2) — attempts on 5xx/429/transport errors
+     *  - retry_base_delay_ms: int (optional, default 200) — initial backoff, doubles per attempt
      */
     private $config;
 
@@ -66,7 +69,8 @@ class FcmHttpV1Client implements PushClient
         $this->config = [
             'project_id' => $config['project_id'],
             'endpoint' => $endpoint,
-            'timeout' => isset($config['timeout']) ? $config['timeout'] : null,
+            'max_retries' => isset($config['max_retries']) ? max(0, (int) $config['max_retries']) : 2,
+            'retry_base_delay_ms' => isset($config['retry_base_delay_ms']) ? max(0, (int) $config['retry_base_delay_ms']) : 200,
         ];
     }
 
@@ -81,62 +85,138 @@ class FcmHttpV1Client implements PushClient
         $payload = ['message' => $this->buildMessagePayload($message, $target)];
         $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-        $token = $this->tokenProvider->getToken();
+        if ($json === false) {
+            $err = function_exists('json_last_error_msg') ? json_last_error_msg() : 'json_encode failed';
+            if ($this->logger) {
+                $this->logger->error('FCM v1 payload encode failed', ['error' => $err]);
+            }
+            return new PushResult(false, null, 'ENCODE_ERROR', $err, null);
+        }
 
+        try {
+            $token = $this->tokenProvider->getToken();
+        } catch (\Throwable $e) {
+            if ($this->logger) {
+                $this->logger->error('FCM v1 token acquisition failed', ['exception' => $e]);
+            }
+            return new PushResult(false, null, 'TOKEN_ERROR', $e->getMessage(), null);
+        }
+
+        $maxRetries = (int) $this->config['max_retries'];
+        $baseDelayMs = (int) $this->config['retry_base_delay_ms'];
+
+        $lastTransient = null;
+        for ($attempt = 0; $attempt <= $maxRetries; $attempt++) {
+            try {
+                return $this->doSend($json, $token);
+            } catch (TransientSendException $e) {
+                $lastTransient = $e;
+                if ($attempt === $maxRetries) {
+                    break;
+                }
+                $this->sleepBackoff($baseDelayMs, $attempt);
+            }
+        }
+
+        // All attempts exhausted on transient failure; surface as a non-success PushResult.
+        return $lastTransient
+            ? $lastTransient->result
+            : new PushResult(false, null, 'TRANSPORT_ERROR', 'Unknown transient failure', null);
+    }
+
+    /**
+     * @throws TransientSendException  On 5xx / 429 / PSR-18 transport errors.
+     */
+    private function doSend(string $json, string $token): PushResult
+    {
         $request = $this->requestFactory->createRequest('POST', $this->config['endpoint'])
             ->withHeader('Authorization', 'Bearer ' . $token)
-            ->withHeader('Content-Type', 'application/json');
-
-        $request = $request->withBody($this->streamFactory->createStream($json));
+            ->withHeader('Content-Type', 'application/json')
+            ->withHeader('User-Agent', Version::USER_AGENT)
+            ->withBody($this->streamFactory->createStream($json));
 
         try {
             $response = $this->http->sendRequest($request);
-            $status = $response->getStatusCode();
-            $body = (string) $response->getBody();
+        } catch (ClientExceptionInterface $e) {
+            if ($this->logger) {
+                $this->logger->warning('FCM v1 transport exception', ['exception' => $e]);
+            }
+            throw new TransientSendException(
+                new PushResult(false, null, 'TRANSPORT_ERROR', $e->getMessage(), null)
+            );
+        }
 
-            // Success
-            if ($status >= 200 && $status < 300) {
-                $decoded = json_decode($body, true);
+        $status = $response->getStatusCode();
+        $body = (string) $response->getBody();
 
-                $id = is_array($decoded) && isset($decoded['name']) ? (string) $decoded['name'] : null;
+        if ($status >= 200 && $status < 300) {
+            $decoded = json_decode($body, true);
+            $id = is_array($decoded) && isset($decoded['name']) ? (string) $decoded['name'] : null;
 
-                if ($this->logger) {
-                    $this->logger->info('FCM v1 send OK', ['id' => $id, 'status' => $status]);
-                }
-
-                return new PushResult(true, $id, null, null, is_array($decoded) ? $decoded : null);
+            if ($this->logger) {
+                $this->logger->info('FCM v1 send OK', ['id' => $id, 'status' => $status]);
             }
 
-            // Error
-            $decoded = json_decode($body, true);
-            $errorCode = null;
-            $errorMessage = null;
+            return new PushResult(true, $id, null, null, is_array($decoded) ? $decoded : null);
+        }
 
-            if (is_array($decoded) && isset($decoded['error']) && is_array($decoded['error'])) {
-                $error = $decoded['error'];
+        $decoded = json_decode($body, true);
+        $errorCode = null;
+        $errorMessage = null;
 
-                $errorCode = isset($error['status']) ? (string) $error['status'] : ('HTTP_' . $status);
-                $errorMessage = isset($error['message']) ? (string) $error['message'] : 'FCM v1 error';
+        if (is_array($decoded) && isset($decoded['error']) && is_array($decoded['error'])) {
+            $error = $decoded['error'];
+
+            // Prefer FcmError.errorCode (e.g. UNREGISTERED, QUOTA_EXCEEDED) over the
+            // generic google.rpc.Status 'status' field (e.g. NOT_FOUND, PERMISSION_DENIED).
+            $fcmErrorCode = null;
+            if (isset($error['details']) && is_array($error['details'])) {
+                foreach ($error['details'] as $detail) {
+                    if (is_array($detail) && isset($detail['errorCode'])) {
+                        $fcmErrorCode = (string) $detail['errorCode'];
+                        break;
+                    }
+                }
+            }
+
+            if ($fcmErrorCode !== null) {
+                $errorCode = $fcmErrorCode;
+            } elseif (isset($error['status'])) {
+                $errorCode = (string) $error['status'];
             } else {
                 $errorCode = 'HTTP_' . $status;
-                $errorMessage = $body !== '' ? $body : 'HTTP error';
             }
 
-            if ($this->logger) {
-                $this->logger->warning('FCM v1 send FAILED', [
-                    'status' => $status,
-                    'error' => $errorCode,
-                    'message' => $errorMessage,
-                ]);
-            }
+            $errorMessage = isset($error['message']) ? (string) $error['message'] : 'FCM v1 error';
+        } else {
+            $errorCode = 'HTTP_' . $status;
+            $errorMessage = $body !== '' ? $body : 'HTTP error';
+        }
 
-            return new PushResult(false, null, $errorCode, $errorMessage, is_array($decoded) ? $decoded : null);
-        } catch (\Throwable $e) {
-            if ($this->logger) {
-                $this->logger->error('FCM V1 exception', ['exception' => $e]);
-            }
+        if ($this->logger) {
+            $this->logger->warning('FCM v1 send FAILED', [
+                'status' => $status,
+                'error' => $errorCode,
+                'message' => $errorMessage,
+            ]);
+        }
 
-            return new PushResult(false, null, 'EXCEPTION', $e->getMessage(), null);
+        $result = new PushResult(false, null, $errorCode, $errorMessage, is_array($decoded) ? $decoded : null);
+
+        if ($status >= 500 || $status === 429) {
+            throw new TransientSendException($result);
+        }
+
+        return $result;
+    }
+
+    private function sleepBackoff(int $baseDelayMs, int $attempt): void
+    {
+        $delayMs = $baseDelayMs * (1 << $attempt);
+        $jitter = (int) ($delayMs * 0.25 * (mt_rand(0, 1000) / 1000));
+        $sleepMicros = ($delayMs + $jitter) * 1000;
+        if ($sleepMicros > 0) {
+            usleep($sleepMicros);
         }
     }
 
@@ -155,20 +235,26 @@ class FcmHttpV1Client implements PushClient
             $msg['condition'] = $target->condition;
         }
 
-        /** Notification */
-        $notification = [
-            'title' => $message->title,
-            'body' => $message->body,
-        ];
-
-        $msg['notification'] = $notification;
+        /** Notification (skip entirely for silent/data-only messages) */
+        if ($message->title !== '' || $message->body !== '') {
+            $msg['notification'] = [
+                'title' => $message->title,
+                'body' => $message->body,
+            ];
+        }
 
         /** Data */
         if (is_array($message->data) && !empty($message->data)) {
             $msg['data'] = [];
 
             foreach ($message->data as $key => $value) {
-                $msg['data'][(string)$key] = is_scalar($value) ? (string)$value : json_encode($value);
+                if (is_scalar($value)) {
+                    $msg['data'][(string) $key] = (string) $value;
+                    continue;
+                }
+
+                $encoded = json_encode($value);
+                $msg['data'][(string) $key] = $encoded === false ? '' : $encoded;
             }
         }
 

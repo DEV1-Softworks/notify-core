@@ -47,7 +47,7 @@ final class ApnsOptions implements PlatformOptions
         return $this;
     }
 
-    public function merge(self $other)
+    public function merge(self $other): self
     {
         $merged = new self();
         $merged->headers = array_replace($this->headers, $other->headers);

@@ -1,0 +1,187 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (PHP ${{ matrix.php-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ["7.4", "8.0", "8.1", "8.2", "8.3", "8.4"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP ${{ matrix.php-version }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          coverage: pcov
+          tools: composer:v2
+          extensions: mbstring, openssl, simplexml, json
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-${{ matrix.php-version }}-${{ hashFiles('composer.json') }}
+          restore-keys: composer-${{ matrix.php-version }}-
+
+      # `composer update` (not install) so each matrix entry resolves deps
+      # compatible with its PHP version — the lockfile pins packages that
+      # require PHP 8.2+ and would otherwise fail on 7.4.
+      - name: Install dependencies
+        run: composer update --no-interaction --no-progress --prefer-dist --with-all-dependencies
+
+      - name: Validate composer.json
+        run: composer validate --strict --no-check-lock
+
+      - name: Run PHPUnit with coverage
+        run: ./vendor/bin/phpunit --coverage-clover coverage.xml --coverage-text
+
+      - name: Enforce >= 80% line coverage
+        run: |
+          php -r '
+            if (!file_exists("coverage.xml")) {
+              fwrite(STDERR, "coverage.xml not produced\n"); exit(1);
+            }
+            $xml = new SimpleXMLElement(file_get_contents("coverage.xml"));
+            $m = $xml->project->metrics;
+            $stmts = (int) $m["statements"];
+            $covered = (int) $m["coveredstatements"];
+            $pct = $stmts > 0 ? ($covered / $stmts) * 100 : 0.0;
+            printf("Line coverage: %.2f%% (%d / %d)\n", $pct, $covered, $stmts);
+            if ($pct < 80.0) {
+              fwrite(STDERR, "FAIL: coverage is below the 80% threshold.\n");
+              exit(1);
+            }
+          '
+
+      # Only the canonical PHP version uploads the report for the deploy job
+      # to consume — and only on master pushes where deploy will actually run.
+      - name: Upload coverage report
+        if: matrix.php-version == '8.3' && github.ref == 'refs/heads/master' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-clover
+          path: coverage.xml
+          retention-days: 7
+
+  deploy:
+    name: Deploy (tag + badges)
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout master with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: composer:v2
+          extensions: simplexml, json
+
+      - name: Read library version
+        id: version
+        run: |
+          VERSION=$(php -r 'require "src/Version.php"; echo Dev1\\NotifyCore\\Version::VERSION;')
+          if [ -z "$VERSION" ]; then
+            echo "::error::Unable to read Dev1\\NotifyCore\\Version::VERSION"
+            exit 1
+          fi
+          echo "version=$VERSION"       >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION"          >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION"
+
+      - name: Check whether tag already exists
+        id: tag_check
+        run: |
+          if git rev-parse --verify "refs/tags/${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "exists=true"  >> "$GITHUB_OUTPUT"
+            echo "Tag ${{ steps.version.outputs.tag }} already exists — skipping release."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create and push version tag
+        if: steps.tag_check.outputs.exists == 'false'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+          echo "Pushed ${{ steps.version.outputs.tag }} — Packagist webhook will publish automatically."
+
+      - name: Download coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-clover
+          path: .
+
+      - name: Compute coverage percentage
+        id: cov
+        run: |
+          PCT=$(php -r '
+            $xml = new SimpleXMLElement(file_get_contents("coverage.xml"));
+            $m = $xml->project->metrics;
+            $s = (int) $m["statements"];
+            $c = (int) $m["coveredstatements"];
+            printf("%.1f", $s > 0 ? ($c / $s) * 100 : 0.0);
+          ')
+          echo "pct=$PCT" >> "$GITHUB_OUTPUT"
+          echo "Coverage: $PCT%"
+
+      - name: Build shields.io endpoint JSON
+        run: |
+          PCT='${{ steps.cov.outputs.pct }}'
+          COLOR=$(awk -v p="$PCT" 'BEGIN {
+            if      (p+0 >= 90) print "brightgreen";
+            else if (p+0 >= 80) print "green";
+            else if (p+0 >= 70) print "yellow";
+            else                print "red";
+          }')
+          mkdir -p badges-out
+          printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' \
+            "$PCT" "$COLOR" > badges-out/coverage.json
+          cat badges-out/coverage.json
+
+      - name: Publish coverage badge to `badges` branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./badges-out
+          publish_branch: badges
+          keep_files: true
+          commit_message: "chore(badges): refresh coverage (${{ steps.cov.outputs.pct }}%)"
+
+      - name: Job summary
+        run: |
+          {
+            echo "### Deploy summary"
+            echo ""
+            echo "- **Version:** \`${{ steps.version.outputs.version }}\`"
+            if [ "${{ steps.tag_check.outputs.exists }}" = "false" ]; then
+              echo "- **Tag published:** \`${{ steps.version.outputs.tag }}\` (Packagist will pick it up via webhook)"
+            else
+              echo "- **Tag published:** skipped — \`${{ steps.version.outputs.tag }}\` already exists"
+            fi
+            echo "- **Coverage:** \`${{ steps.cov.outputs.pct }}%\`"
+          } >> "$GITHUB_STEP_SUMMARY"
