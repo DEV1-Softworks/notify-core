@@ -102,9 +102,9 @@ jobs:
       - name: Read library version
         id: version
         run: |
-          VERSION=$(php -r 'require "src/Version.php"; echo Dev1\\NotifyCore\\Version::VERSION;')
+          VERSION=$(php -r 'require "src/Version.php"; echo Dev1\NotifyCore\Version::VERSION;')
           if [ -z "$VERSION" ]; then
-            echo "::error::Unable to read Dev1\\NotifyCore\\Version::VERSION"
+            echo "::error::Unable to read Dev1\NotifyCore\Version::VERSION"
             exit 1
           fi
           echo "version=$VERSION"       >> "$GITHUB_OUTPUT"
