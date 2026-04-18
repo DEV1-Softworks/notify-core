@@ -17,7 +17,7 @@ class FcmClientFactory
         StreamFactoryInterface $streamFactory,
         AccessTokenProvider $tokenProvider,
         ?LoggerInterface $logger,
-        array $config,
+        array $config
     ): FcmHttpV1Client {
         return new FcmHttpV1Client(
             $http,

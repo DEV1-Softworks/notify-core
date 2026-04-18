@@ -28,10 +28,9 @@ final class AndroidOptions implements PlatformOptions
         return new self();
     }
 
-    public function withChannelId(string $channelId)
+    public function withChannelId(string $channelId): self
     {
         $this->channelId = $channelId;
-        $this->notification['channel_id'] = $channelId;
         return $this;
     }
 
@@ -44,7 +43,9 @@ final class AndroidOptions implements PlatformOptions
         } elseif ($p === 'NORMAL' || $p === 'DEFAULT' || $p === 'LOW') {
             $this->priority = 'NORMAL';
         } else {
-            $this->priority = $p; // allow raw values if already correct
+            throw new \InvalidArgumentException(
+                'AndroidOptions::withPriority expects HIGH|MAX|NORMAL|DEFAULT|LOW, got: ' . $priority
+            );
         }
         return $this;
     }
@@ -88,7 +89,7 @@ final class AndroidOptions implements PlatformOptions
         return $this;
     }
 
-    public function merge(self $other)
+    public function merge(self $other): self
     {
         $merged = new self();
 
@@ -134,8 +135,7 @@ final class AndroidOptions implements PlatformOptions
         }
 
         if ($this->channelId !== null) {
-            // Ensure channel_id is always set in notification for backward compatibility
-            if (!isset($output['notification'])) {
+            if (!isset($output['notification']) || !is_array($output['notification'])) {
                 $output['notification'] = [];
             }
             $output['notification']['channel_id'] = $this->channelId;

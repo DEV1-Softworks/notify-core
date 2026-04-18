@@ -3,7 +3,10 @@
 Driver-agnostic notifications core for PHP (starting with Firebase Cloud Messaging HTTP v1).  
 Built in Mexico by **DEV1 Softworks Labs**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![Version: 1.1](https://img.shields.io/badge/version-1.1-green.svg)](#)
+[![CI/CD](https://github.com/DEV1-Softworks/notify-core/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/DEV1-Softworks/notify-core/actions/workflows/ci.yml)
+[![Packagist Version](https://img.shields.io/packagist/v/dev1/notify-core.svg)](https://packagist.org/packages/dev1/notify-core)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/DEV1-Softworks/notify-core/badges/coverage.json)](https://github.com/DEV1-Softworks/notify-core/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
 
@@ -103,8 +106,10 @@ var_dump($result);
 - [ ] Add more drivers (Twilio Notify, OneSignal, APNs)
 - [x] Laravel adapter (`dev1/laravel-notify`)
 - [ ] Symfony bundle (`dev1/symfony-notify-bundle`)
-- [ ] Unit tests & CI
+- [x] Unit tests
+- [x] CI pipeline
 - [x] Advanced platform overrides (Android/APNs)
+- [x] Optional PSR-16 token cache + automatic retries on transient failures
 
 ---
 

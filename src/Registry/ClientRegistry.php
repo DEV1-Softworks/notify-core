@@ -71,17 +71,24 @@ class ClientRegistry
     }
 
     /**
-     * Removes a client from registry. If it was default, default is cleared.
+     * Removes a client from the registry. If it was the default, the default is cleared.
+     * Idempotent: removing an unknown name is a no-op.
+     *
+     * @return bool True if a client was removed, false if no client existed with that name.
      */
-    public function remove(string $name)
+    public function remove(string $name): bool
     {
-        if (isset($this->clients[$name])) {
-            unset($this->clients[$name]);
-
-            if ($this->defaultName === $name) {
-                $this->defaultName = null;
-            }
+        if (!isset($this->clients[$name])) {
+            return false;
         }
+
+        unset($this->clients[$name]);
+
+        if ($this->defaultName === $name) {
+            $this->defaultName = null;
+        }
+
+        return true;
     }
 
     /**
