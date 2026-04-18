@@ -2,8 +2,11 @@ name: CI/CD
 
 on:
   push:
-    branches: ['**']
+    branches:
+      - master
   pull_request:
+    branches:
+      - master
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -16,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php-version: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4']
+        php-version: ["7.4", "8.0", "8.1", "8.2", "8.3", "8.4"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -92,7 +95,7 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: "8.3"
           tools: composer:v2
           extensions: simplexml, json
 
