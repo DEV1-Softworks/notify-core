@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php-version: ["7.4", "8.0", "8.1", "8.2", "8.3", "8.4"]
+        php-version: ["7.4", "8.0", "8.1", "8.2", "8.3", "8.4", "8.5"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,8 +48,17 @@ jobs:
       - name: Validate composer.json
         run: composer validate --strict --no-check-lock
 
+      # PHPUnit 9 (PHP 7.4/8.0) uses the legacy `<coverage><include>` schema;
+      # PHPUnit 10/11 (PHP 8.1+) uses the modern `<source><include>` schema.
+      # Each version's schema validator rejects the other's syntax as a runner
+      # warning, so we keep two config files and pick per matrix entry.
       - name: Run PHPUnit with coverage
-        run: ./vendor/bin/phpunit --coverage-clover coverage.xml --coverage-text
+        run: |
+          if [[ "${{ matrix.php-version }}" == "7.4" || "${{ matrix.php-version }}" == "8.0" ]]; then
+            ./vendor/bin/phpunit -c phpunit-legacy.xml.dist --coverage-clover coverage.xml --coverage-text
+          else
+            ./vendor/bin/phpunit --coverage-clover coverage.xml --coverage-text
+          fi
 
       - name: Enforce >= 80% line coverage
         run: |
